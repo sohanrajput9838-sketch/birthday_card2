@@ -2232,4 +2232,644 @@
           ['#fb7185', '#e11d48'],
           ['#fbbf24', '#d97706'],
           ['#38bdf8', '#0284c7'],
-          ['#c084fc', '#9
+                    ['#c084fc', '#9333ea']
+        ];
+
+        const words = (config.balloonWords || ['Best', 'sister', 'ever', 'Vedika!']).slice(0, 4);
+        while (words.length < 4) words.push('✨');
+
+        arena.innerHTML = '';
+        words.forEach((word, idx) => {
+          const slot = document.createElement('div');
+          slot.className = 'balloon-slot';
+
+          const [c1, c2] = palette[idx % palette.length];
+          const btn = document.createElement('button');
+          btn.type = 'button';
+          btn.className = 'balloon-btn';
+          btn.style.animationDelay = `${idx * 0.35}s`;
+          btn.setAttribute('aria-label', `Pop balloon ${idx + 1}`);
+          btn.innerHTML = `
+            <svg width="86" height="122" viewBox="0 0 86 122" fill="none">
+              <defs>
+                <radialGradient id="bGrad${idx}" cx="35%" cy="30%" r="65%">
+                  <stop offset="0%" stop-color="#ffffff" stop-opacity="0.75"/>
+                  <stop offset="25%" stop-color="${c1}"/>
+                  <stop offset="100%" stop-color="${c2}"/>
+                </radialGradient>
+              </defs>
+              <path d="M43 8 C64 8 78 25 78 46 C78 68 58 84 43 88 C28 84 8 68 8 46 C8 25 22 8 43 8 Z" fill="url(#bGrad${idx})"/>
+              <polygon points="43,87 37,94 49,94" fill="${c2}"/>
+              <path d="M43 94 Q36 105 45 113 Q50 118 42 122" stroke="currentColor" stroke-width="1.8" fill="none" opacity="0.6"/>
+            </svg>
+          `;
+
+          btn.addEventListener('click', () => {
+            SoundEngine.playPop();
+            Confetti.burst(35);
+            slot.innerHTML = `<div class="revealed-word">${escapeHtml(word || '✨')}</div>`;
+            poppedCount++;
+            counter.textContent = `Revealed ${poppedCount}/4 words!`;
+            if (poppedCount >= 4) {
+              SoundEngine.playChime();
+              Confetti.burst(80);
+              counter.textContent = `🎉 "${words.join(' ')}"`;
+              nextBtn.classList.remove('hidden');
+            }
+          });
+
+          slot.appendChild(btn);
+          arena.appendChild(slot);
+        });
+      }
+
+      function extinguishCandle() {
+        if (candleBlown) return;
+        candleBlown = true;
+        stopMicDetection();
+        SoundEngine.playChime();
+        Confetti.burst(95);
+
+        document.getElementById('candleFlame').classList.add('out');
+        document.getElementById('candleSmoke').classList.add('visible');
+        document.getElementById('cardStage').classList.add('lights-dimmed');
+        document.getElementById('s4Heading').textContent = 'Close your eyes & make a wish ✨';
+        document.getElementById('s4Sub').textContent = 'May every dream you wish for come true!';
+        document.getElementById('btnTapBlow').classList.add('hidden');
+        document.getElementById('btnCandleNext').classList.remove('hidden');
+      }
+
+      async function startMicDetection() {
+        const statusEl = document.getElementById('micStatus');
+        if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+          statusEl.textContent = '👇 Tap the button below to blow out the candle';
+          return;
+        }
+        try {
+          micStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+          const AudioCtx = window.AudioContext || window.webkitAudioContext;
+          const audioCtx = new AudioCtx();
+          const source = audioCtx.createMediaStreamSource(micStream);
+          const analyser = audioCtx.createAnalyser();
+          analyser.fftSize = 256;
+          source.connect(analyser);
+
+          const data = new Uint8Array(analyser.frequencyBinCount);
+          statusEl.textContent = '🎙️ Mic active — blow gently towards your screen!';
+
+          const checkVolume = () => {
+            if (candleBlown || currentScreen !== 4) return;
+            analyser.getByteFrequencyData(data);
+            let sum = 0;
+            for (let i = 0; i < data.length; i++) sum += data[i];
+            const avg = sum / data.length;
+            if (avg > 48) {
+              extinguishCandle();
+              return;
+            }
+            micAnimId = requestAnimationFrame(checkVolume);
+          };
+          checkVolume();
+        } catch (err) {
+          statusEl.textContent = '👇 Mic blocked/unavailable — tap button below to blow';
+        }
+      }
+
+      function stopMicDetection() {
+        if (micAnimId) {
+          cancelAnimationFrame(micAnimId);
+          micAnimId = null;
+        }
+        if (micStream) {
+          micStream.getTracks().forEach((t) => t.stop());
+          micStream = null;
+        }
+      }
+
+      function buildBouquetAndPhotos() {
+        const notesWrap = document.getElementById('bouquetNotesWrap');
+        const notes = (config.bouquetNotes || []).filter((n) => n.trim().length > 0);
+        notesWrap.innerHTML = notes
+          .map(
+            (note, i) =>
+              `<span class="love-bubble" style="animation-delay:${i * 0.4}s;">🌸 ${escapeHtml(note)}</span>`
+          )
+          .join('');
+
+        const grid = document.getElementById('photosGrid');
+        const activePhotos = getActivePhotos();
+        if (activePhotos.length > 0) {
+          grid.innerHTML = activePhotos
+            .map(
+              (src, idx) => `
+              <div class="polaroid">
+                <img src="${escapeHtml(src)}" alt="Memory ${idx + 1}" />
+                <div class="polaroid-cap">Memory #${idx + 1}</div>
+              </div>`
+            )
+            .join('');
+        } else {
+          const defaults = [
+            { icon: '✨', cap: 'Pure Joy' },
+            { icon: '🎂', cap: 'Sweet Day' },
+            { icon: '💖', cap: 'Cherished' }
+          ];
+          grid.innerHTML = defaults
+            .map(
+              (d) => `
+              <div class="polaroid">
+                <div class="polaroid-placeholder">${d.icon}</div>
+                <div class="polaroid-cap">${d.cap}</div>
+              </div>`
+            )
+            .join('');
+        }
+      }
+
+      function openLetterEnvelope() {
+        SoundEngine.playChime();
+        document.getElementById('envelopeBox').classList.add('hidden');
+        const stationery = document.getElementById('stationeryBox');
+        const typedEl = document.getElementById('letterTypedText');
+        const nextBtn = document.getElementById('btnLetterNext');
+
+        stationery.classList.remove('hidden');
+        typedEl.textContent = '';
+
+        const fullText = config.letterText || DEFAULT_CONFIG.letterText;
+        let idx = 0;
+        if (typewriterTimer) clearInterval(typewriterTimer);
+
+        typewriterTimer = setInterval(() => {
+          idx++;
+          typedEl.textContent = fullText.slice(0, idx);
+          stationery.scrollTop = stationery.scrollHeight;
+          if (idx >= fullText.length) {
+            clearInterval(typewriterTimer);
+            typewriterTimer = null;
+            nextBtn.classList.remove('hidden');
+          }
+        }, 28);
+      }
+
+      /* ----------------------------------------------------------------------
+         G. CREATOR STUDIO BINDINGS & IMAGE/AUDIO HANDLING
+         ---------------------------------------------------------------------- */
+      function syncStudioInputsFromConfig() {
+        document.getElementById('inpRecipient').value = config.recipientName || '';
+        document.getElementById('inpSender').value = config.senderSignOff || '';
+        document.getElementById('inpCountdown').value = config.targetDate || getDefaultTargetISO();
+
+        document.querySelectorAll('#themeSelectorGroup .theme-option').forEach((btn) => {
+          btn.classList.toggle('selected', btn.dataset.theme === config.theme);
+        });
+
+        for (let i = 0; i < 3; i++) {
+          document.getElementById(`inpPhotoUrl${i}`).value = (config.photoUrls && config.photoUrls[i]) || '';
+        }
+        renderStudioPhotoThumbs();
+
+        document.getElementById('selMusicTrack').value = config.musicTrack || 'musicbox';
+        document.getElementById('customAudioControls').classList.toggle(
+          'hidden',
+          config.musicTrack !== 'custom'
+        );
+        document.getElementById('inpMp3Url').value = config.customAudioUrl || '';
+        document.getElementById('mp3FileInfo').textContent = config.customAudioName
+          ? `Loaded: ${config.customAudioName}`
+          : '';
+
+        const words = config.balloonWords || ['Best', 'sister', 'ever', 'Vedika!'];
+        for (let i = 0; i < 4; i++) {
+          document.getElementById(`inpBalloon${i}`).value = words[i] || '';
+        }
+        document.getElementById('inpBouquetNotes').value = (config.bouquetNotes || []).join(', ');
+        document.getElementById('inpLetter').value = config.letterText || '';
+      }
+
+      function renderStudioPhotoThumbs() {
+        const row = document.getElementById('studioPhotoThumbs');
+        row.innerHTML = '';
+
+        (config.photoUrls || []).forEach((url, idx) => {
+          const cleanUrl = (url || '').trim();
+          if (!cleanUrl) return;
+          const item = document.createElement('div');
+          item.className = 'thumb-item';
+          item.innerHTML = `<img src="${escapeHtml(cleanUrl)}" alt="Photo URL ${idx + 1}" />`;
+          const del = document.createElement('button');
+          del.type = 'button';
+          del.className = 'remove-thumb';
+          del.textContent = '✕';
+          del.title = 'Clear photo URL';
+          del.addEventListener('click', () => {
+            config.photoUrls[idx] = '';
+            document.getElementById(`inpPhotoUrl${idx}`).value = '';
+            renderStudioPhotoThumbs();
+          });
+          item.appendChild(del);
+          row.appendChild(item);
+        });
+
+        (config.photos || []).forEach((src, idx) => {
+          const item = document.createElement('div');
+          item.className = 'thumb-item';
+          item.innerHTML = `<img src="${src}" alt="Local Photo ${idx + 1}" />`;
+          const del = document.createElement('button');
+          del.type = 'button';
+          del.className = 'remove-thumb';
+          del.textContent = '✕';
+          del.title = 'Remove local photo';
+          del.addEventListener('click', () => {
+            config.photos.splice(idx, 1);
+            renderStudioPhotoThumbs();
+          });
+          item.appendChild(del);
+          row.appendChild(item);
+        });
+      }
+
+      function compressImageFile(file) {
+        return new Promise((resolve) => {
+          const reader = new FileReader();
+          reader.onload = (e) => {
+            const img = new Image();
+            img.onload = () => {
+              const maxDim = 500;
+              let w = img.width;
+              let h = img.height;
+              if (w > maxDim || h > maxDim) {
+                if (w > h) {
+                  h = Math.round((h * maxDim) / w);
+                  w = maxDim;
+                } else {
+                  w = Math.round((w * maxDim) / h);
+                  h = maxDim;
+                }
+              }
+              const canvas = document.createElement('canvas');
+              canvas.width = w;
+              canvas.height = h;
+              const ctx = canvas.getContext('2d');
+              ctx.drawImage(img, 0, 0, w, h);
+              resolve(canvas.toDataURL('image/jpeg', 0.75));
+            };
+            img.src = e.target.result;
+          };
+          reader.readAsDataURL(file);
+        });
+      }
+
+      /* ----------------------------------------------------------------------
+         H. SHAREABLE LINK ENCODING, LOCALSTORAGE ID & MODAL LOGIC
+         ---------------------------------------------------------------------- */
+      function generateShortId() {
+        const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+        let id = '';
+        for (let i = 0; i < 6; i++) {
+          id += chars[Math.floor(Math.random() * chars.length)];
+        }
+        return id;
+      }
+
+      function encodeCompactHash(cfg) {
+        const slim = {
+          r: cfg.recipientName,
+          s: cfg.senderSignOff,
+          t: cfg.targetDate,
+          th: cfg.theme,
+          p: (cfg.photoUrls || []).map((u) => (u || '').trim()).filter(Boolean).slice(0, 3),
+          m: cfg.musicTrack,
+          mu: cfg.customAudioUrl || '',
+          b: cfg.balloonWords,
+          n: cfg.bouquetNotes,
+          l: cfg.letterText
+        };
+        const jsonStr = JSON.stringify(slim);
+        const bytes = new TextEncoder().encode(jsonStr);
+        let bin = '';
+        bytes.forEach((b) => (bin += String.fromCharCode(b)));
+        return btoa(bin).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+      }
+
+      function decodeCompactHash(hashStr) {
+        try {
+          let b64 = hashStr.replace(/-/g, '+').replace(/_/g, '/');
+          while (b64.length % 4) b64 += '=';
+          const bin = atob(b64);
+          const bytes = new Uint8Array(bin.length);
+          for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+          const slim = JSON.parse(new TextDecoder().decode(bytes));
+          const parsedPhotos = Array.isArray(slim.p) ? slim.p : [];
+          return {
+            ...DEFAULT_CONFIG,
+            recipientName: slim.r || DEFAULT_CONFIG.recipientName,
+            senderSignOff: slim.s || DEFAULT_CONFIG.senderSignOff,
+            targetDate: slim.t || DEFAULT_CONFIG.targetDate,
+            theme: slim.th || 'cute',
+            photoUrls: [parsedPhotos[0] || '', parsedPhotos[1] || '', parsedPhotos[2] || ''],
+            photos: [],
+            musicTrack: slim.m || 'musicbox',
+            customAudioUrl: slim.mu || '',
+            balloonWords: Array.isArray(slim.b) ? slim.b : DEFAULT_CONFIG.balloonWords,
+            bouquetNotes: Array.isArray(slim.n) ? slim.n : DEFAULT_CONFIG.bouquetNotes,
+            letterText: slim.l || DEFAULT_CONFIG.letterText
+          };
+        } catch (e) {
+          return null;
+        }
+      }
+
+      function openShareModal() {
+        const shortId = generateShortId();
+        try {
+          localStorage.setItem(`bday_gift_${shortId}`, JSON.stringify(config));
+        } catch (e) {}
+
+        const encoded = encodeCompactHash(config);
+        const baseUrl = window.location.href.split('#')[0].split('?')[0];
+        const shareUrl = `${baseUrl}?id=${shortId}#gift=${encoded}`;
+        lastGeneratedUrl = shareUrl;
+
+        document.getElementById('modalCardIdBadge').textContent = `ID: ${shortId}`;
+        document.getElementById('shareUrlInput').value = shareUrl;
+        document.getElementById('copyToast').textContent = '';
+        document.getElementById('testerFeedback').textContent = '';
+
+        const qrCanvas = document.getElementById('qrCanvas');
+        QRGenerator.drawToCanvas(qrCanvas, shareUrl);
+
+        document.getElementById('shareModal').classList.remove('hidden');
+      }
+
+      function loadCardFromInputString(rawInput) {
+        const val = (rawInput || '').trim();
+        if (!val) return false;
+
+        const hashMatch = val.match(/#gift=([A-Za-z0-9\-_]+)/);
+        if (hashMatch) {
+          const decoded = decodeCompactHash(hashMatch[1]);
+          if (decoded) {
+            config = decoded;
+            syncStudioInputsFromConfig();
+            applyConfigToCard();
+            switchMode('preview');
+            return true;
+          }
+        }
+
+        const idMatch = val.match(/(?:[?&]id=|^)([A-Z0-9]{6})(?:$|&|#)/i);
+        if (idMatch) {
+          const id = idMatch[1].toUpperCase();
+          try {
+            const saved = localStorage.getItem(`bday_gift_${id}`);
+            if (saved) {
+              config = { ...DEFAULT_CONFIG, ...JSON.parse(saved) };
+              syncStudioInputsFromConfig();
+              applyConfigToCard();
+              switchMode('preview');
+              return true;
+            }
+          } catch (e) {}
+        }
+
+        return false;
+      }
+
+      function loadInitialCardFromLocation() {
+        const search = window.location.search || '';
+        const hash = window.location.hash || '';
+        if (search.includes('id=') || hash.includes('#gift=')) {
+          loadCardFromInputString(`${search}${hash}`);
+        }
+      }
+
+      /* ----------------------------------------------------------------------
+         I. MODE SWITCHING & EVENT LISTENERS
+         ---------------------------------------------------------------------- */
+      function switchMode(mode) {
+        const isPreview = mode === 'preview';
+        document.getElementById('tabPreview').classList.toggle('active', isPreview);
+        document.getElementById('tabStudio').classList.toggle('active', !isPreview);
+        document.getElementById('cardStage').classList.toggle('hidden', !isPreview);
+        document.getElementById('studioView').classList.toggle('hidden', isPreview);
+
+        if (isPreview) {
+          applyConfigToCard();
+        } else {
+          SoundEngine.stopMusic();
+          stopMicDetection();
+          syncStudioInputsFromConfig();
+        }
+      }
+
+      function escapeHtml(str) {
+        const div = document.createElement('div');
+        div.textContent = str;
+        return div.innerHTML;
+      }
+
+      function initEvents() {
+        document.getElementById('tabPreview').addEventListener('click', () => switchMode('preview'));
+        document.getElementById('tabStudio').addEventListener('click', () => switchMode('studio'));
+        document.getElementById('audioToggleBtn').addEventListener('click', () => SoundEngine.toggleMute());
+
+        document.getElementById('btnPeekNow').addEventListener('click', () => {
+          SoundEngine.unlockAndPlay();
+          SoundEngine.playChime();
+          goToScreen(2);
+        });
+
+        document.getElementById('btnYesExcited').addEventListener('click', () => {
+          SoundEngine.playChime();
+          Confetti.burst(45);
+          goToScreen(3);
+        });
+
+        const noBtn = document.getElementById('btnNoDodge');
+        const dodgeNoBtn = (e) => {
+          if (e) e.preventDefault();
+          SoundEngine.playPop();
+          const dx = (Math.random() - 0.5) * 180;
+          const dy = (Math.random() - 0.5) * 90;
+          noBtn.style.transform = `translate(${dx.toFixed(0)}px, ${dy.toFixed(0)}px)`;
+        };
+        noBtn.addEventListener('mouseenter', dodgeNoBtn);
+        noBtn.addEventListener('click', dodgeNoBtn);
+        noBtn.addEventListener('touchstart', dodgeNoBtn, { passive: false });
+
+        document.getElementById('btnBalloonsNext').addEventListener('click', () => goToScreen(4));
+
+        document.getElementById('btnTapBlow').addEventListener('click', extinguishCandle);
+        document.getElementById('candleSvgWrap').addEventListener('click', extinguishCandle);
+        document.getElementById('btnCandleNext').addEventListener('click', () => goToScreen(5));
+
+        document.getElementById('btnBouquetNext').addEventListener('click', () => goToScreen(6));
+
+        document.getElementById('envelopeBox').addEventListener('click', openLetterEnvelope);
+        document.getElementById('btnLetterNext').addEventListener('click', () => goToScreen(7));
+
+        const giftBtn = document.getElementById('giftBoxBtn');
+        giftBtn.addEventListener('click', () => {
+          giftTapCount++;
+          SoundEngine.playPop();
+          giftBtn.classList.remove('shake');
+          void giftBtn.offsetWidth;
+          giftBtn.classList.add('shake');
+
+          if (giftTapCount < 3) {
+            document.getElementById('s7Sub').textContent = `Keep tapping! (${giftTapCount}/3)`;
+          } else {
+            SoundEngine.playChime();
+            Confetti.burst(130);
+            giftBtn.classList.add('hidden');
+            document.getElementById('s7Heading').textContent = '🎉 Happy Birthday! 🎉';
+            document.getElementById('s7Sub').textContent = 'Wishing you the best year ahead!';
+            document.getElementById('finalRevealCard').classList.remove('hidden');
+            document.getElementById('btnReplayCard').classList.remove('hidden');
+          }
+        });
+
+        document.getElementById('btnReplayCard').addEventListener('click', () => {
+          resetCardProgress();
+        });
+
+        document.getElementById('inpRecipient').addEventListener('input', (e) => {
+          config.recipientName = e.target.value;
+        });
+        document.getElementById('inpSender').addEventListener('input', (e) => {
+          config.senderSignOff = e.target.value;
+        });
+        document.getElementById('inpCountdown').addEventListener('change', (e) => {
+          config.targetDate = e.target.value;
+        });
+
+        document.querySelectorAll('#themeSelectorGroup .theme-option').forEach((btn) => {
+          btn.addEventListener('click', () => {
+            config.theme = btn.dataset.theme;
+            document.querySelectorAll('#themeSelectorGroup .theme-option').forEach((b) =>
+              b.classList.toggle('selected', b === btn)
+            );
+          });
+        });
+
+        for (let i = 0; i < 3; i++) {
+          document.getElementById(`inpPhotoUrl${i}`).addEventListener('input', (e) => {
+            if (!Array.isArray(config.photoUrls)) config.photoUrls = ['', '', ''];
+            config.photoUrls[i] = e.target.value.trim();
+            renderStudioPhotoThumbs();
+          });
+        }
+
+        document.getElementById('inpPhotos').addEventListener('change', async (e) => {
+          const files = Array.from(e.target.files || []).slice(0, 3);
+          if (!files.length) return;
+          const compressed = await Promise.all(files.map(compressImageFile));
+          config.photos = [...(config.photos || []), ...compressed].slice(0, 3);
+          renderStudioPhotoThumbs();
+          e.target.value = '';
+        });
+
+        const selMusic = document.getElementById('selMusicTrack');
+        selMusic.addEventListener('change', (e) => {
+          config.musicTrack = e.target.value;
+          SoundEngine.stopMusic();
+          document.getElementById('customAudioControls').classList.toggle(
+            'hidden',
+            config.musicTrack !== 'custom'
+          );
+        });
+
+        document.getElementById('btnTestAudio').addEventListener('click', (e) => {
+          if (SoundEngine.isTesting) {
+            SoundEngine.stopMusic();
+            e.target.textContent = '▶ Test Audio';
+          } else {
+            SoundEngine.startMusic(true);
+            e.target.textContent = '⏹ Stop Audio';
+          }
+        });
+
+        document.getElementById('inpMp3File').addEventListener('change', (e) => {
+          const file = e.target.files && e.target.files[0];
+          if (!file) return;
+          const reader = new FileReader();
+          reader.onload = (ev) => {
+            config.customAudioData = ev.target.result;
+            config.customAudioName = `${file.name} (${Math.round(file.size / 1024)} KB)`;
+            document.getElementById('mp3FileInfo').textContent = `✓ Loaded: ${config.customAudioName}`;
+          };
+          reader.readAsDataURL(file);
+        });
+
+        document.getElementById('inpMp3Url').addEventListener('input', (e) => {
+          config.customAudioUrl = e.target.value.trim();
+        });
+
+        for (let i = 0; i < 4; i++) {
+          document.getElementById(`inpBalloon${i}`).addEventListener('input', (e) => {
+            config.balloonWords[i] = e.target.value;
+          });
+        }
+
+        document.getElementById('inpBouquetNotes').addEventListener('input', (e) => {
+          config.bouquetNotes = e.target.value.split(',').map((s) => s.trim());
+        });
+
+        document.getElementById('inpLetter').addEventListener('input', (e) => {
+          config.letterText = e.target.value;
+        });
+
+        document.getElementById('btnGenerateShare').addEventListener('click', openShareModal);
+        document.getElementById('btnStudioToPreview').addEventListener('click', () => switchMode('preview'));
+        document.getElementById('btnOpenTesterFromStudio').addEventListener('click', openShareModal);
+
+        document.getElementById('btnCloseModal').addEventListener('click', () => {
+          document.getElementById('shareModal').classList.add('hidden');
+        });
+
+        document.getElementById('btnCopyLink').addEventListener('click', () => {
+          const input = document.getElementById('shareUrlInput');
+          input.select();
+          input.setSelectionRange(0, 99999);
+          let copied = false;
+          try {
+            copied = document.execCommand('copy');
+          } catch (e) {}
+          document.getElementById('copyToast').textContent = copied
+            ? '✅ Link copied to clipboard!'
+            : 'Link selected — press Ctrl+C / Cmd+C to copy';
+        });
+
+        document.getElementById('btnPreviewGenerated').addEventListener('click', () => {
+          document.getElementById('shareModal').classList.add('hidden');
+          loadCardFromInputString(lastGeneratedUrl);
+        });
+
+        document.getElementById('btnLoadTestedLink').addEventListener('click', () => {
+          const val = document.getElementById('testerInput').value;
+          const ok = loadCardFromInputString(val);
+          if (ok) {
+            document.getElementById('shareModal').classList.add('hidden');
+            document.getElementById('testerFeedback').textContent = '';
+          } else {
+            document.getElementById('testerFeedback').textContent =
+              'Could not find a valid Card ID or #gift= link. Check and try again.';
+          }
+        });
+      }
+
+      /* ----------------------------------------------------------------------
+         J. BOOTSTRAP APPLICATION
+         ---------------------------------------------------------------------- */
+      initEvents();
+      loadInitialCardFromLocation();
+      syncStudioInputsFromConfig();
+      applyConfigToCard();
+      updateCountdown();
+      setInterval(updateCountdown, 1000);
+    })();
+  </script>
+</body>
+</html>
+

@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+          <!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
@@ -2591,4 +2591,286 @@
         const shareUrl = `${baseUrl}?id=${shortId}#gift=${encoded}`;
         lastGeneratedUrl = shareUrl;
 
-        document.getElementById('modalCardIdBadge').textContent =
+        document.getElementById('modalCardIdBadge').textContent = `ID: ${shortId}`;
+        document.getElementById('shareUrlInput').value = shareUrl;
+        document.getElementById('copyToast').textContent = '';
+        document.getElementById('testerFeedback').textContent = '';
+
+        const qrCanvas = document.getElementById('qrCanvas');
+        QRGenerator.drawToCanvas(qrCanvas, shareUrl);
+
+        document.getElementById('shareModal').classList.remove('hidden');
+      }
+
+      function loadCardFromInputString(rawInput) {
+        const val = (rawInput || '').trim();
+        if (!val) return false;
+
+        // 1. Prefer #gift=... hash payload so cross-device shared links always load exact URLs
+        const hashMatch = val.match(/#gift=([A-Za-z0-9\-_]+)/);
+        if (hashMatch) {
+          const decoded = decodeCompactHash(hashMatch[1]);
+          if (decoded) {
+            config = decoded;
+            syncStudioInputsFromConfig();
+            applyConfigToCard();
+            switchMode('preview');
+            return true;
+          }
+        }
+
+        // 2. Fallback to 6-character Card ID in localStorage
+        const idMatch = val.match(/(?:[?&]id=|^)([A-Z0-9]{6})(?:$|&|#)/i);
+        if (idMatch) {
+          const id = idMatch[1].toUpperCase();
+          try {
+            const saved = localStorage.getItem(`bday_gift_${id}`);
+            if (saved) {
+              config = { ...DEFAULT_CONFIG, ...JSON.parse(saved) };
+              syncStudioInputsFromConfig();
+              applyConfigToCard();
+              switchMode('preview');
+              return true;
+            }
+          } catch (e) {}
+        }
+
+        return false;
+      }
+
+      function loadInitialCardFromLocation() {
+        const search = window.location.search || '';
+        const hash = window.location.hash || '';
+        if (search.includes('id=') || hash.includes('#gift=')) {
+          loadCardFromInputString(`${search}${hash}`);
+        }
+      }
+
+      /* ----------------------------------------------------------------------
+         I. MODE SWITCHING & EVENT LISTENERS
+         ---------------------------------------------------------------------- */
+      function switchMode(mode) {
+        const isPreview = mode === 'preview';
+        document.getElementById('tabPreview').classList.toggle('active', isPreview);
+        document.getElementById('tabStudio').classList.toggle('active', !isPreview);
+        document.getElementById('cardStage').classList.toggle('hidden', !isPreview);
+        document.getElementById('studioView').classList.toggle('hidden', isPreview);
+
+        if (isPreview) {
+          applyConfigToCard();
+        } else {
+          SoundEngine.stopMusic();
+          stopMicDetection();
+          syncStudioInputsFromConfig();
+        }
+      }
+
+      function escapeHtml(str) {
+        const div = document.createElement('div');
+        div.textContent = str;
+        return div.innerHTML;
+      }
+
+      function initEvents() {
+        document.getElementById('tabPreview').addEventListener('click', () => switchMode('preview'));
+        document.getElementById('tabStudio').addEventListener('click', () => switchMode('studio'));
+        document.getElementById('audioToggleBtn').addEventListener('click', () => SoundEngine.toggleMute());
+
+        document.getElementById('btnPeekNow').addEventListener('click', () => {
+          SoundEngine.unlockAndPlay();
+          SoundEngine.playChime();
+          goToScreen(2);
+        });
+
+        document.getElementById('btnYesExcited').addEventListener('click', () => {
+          SoundEngine.playChime();
+          Confetti.burst(45);
+          goToScreen(3);
+        });
+
+        const noBtn = document.getElementById('btnNoDodge');
+        const dodgeNoBtn = (e) => {
+          if (e) e.preventDefault();
+          SoundEngine.playPop();
+          const dx = (Math.random() - 0.5) * 180;
+          const dy = (Math.random() - 0.5) * 90;
+          noBtn.style.transform = `translate(${dx.toFixed(0)}px, ${dy.toFixed(0)}px)`;
+        };
+        noBtn.addEventListener('mouseenter', dodgeNoBtn);
+        noBtn.addEventListener('click', dodgeNoBtn);
+        noBtn.addEventListener('touchstart', dodgeNoBtn, { passive: false });
+
+        document.getElementById('btnBalloonsNext').addEventListener('click', () => goToScreen(4));
+
+        document.getElementById('btnTapBlow').addEventListener('click', extinguishCandle);
+        document.getElementById('candleSvgWrap').addEventListener('click', extinguishCandle);
+        document.getElementById('btnCandleNext').addEventListener('click', () => goToScreen(5));
+
+        document.getElementById('btnBouquetNext').addEventListener('click', () => goToScreen(6));
+
+        document.getElementById('envelopeBox').addEventListener('click', openLetterEnvelope);
+        document.getElementById('btnLetterNext').addEventListener('click', () => goToScreen(7));
+
+        const giftBtn = document.getElementById('giftBoxBtn');
+        giftBtn.addEventListener('click', () => {
+          giftTapCount++;
+          SoundEngine.playPop();
+          giftBtn.classList.remove('shake');
+          void giftBtn.offsetWidth;
+          giftBtn.classList.add('shake');
+
+          if (giftTapCount < 3) {
+            document.getElementById('s7Sub').textContent = `Keep tapping! (${giftTapCount}/3)`;
+          } else {
+            SoundEngine.playChime();
+            Confetti.burst(130);
+            giftBtn.classList.add('hidden');
+            document.getElementById('s7Heading').textContent = '🎉 Happy Birthday! 🎉';
+            document.getElementById('s7Sub').textContent = 'Wishing you the best year ahead!';
+            document.getElementById('finalRevealCard').classList.remove('hidden');
+            document.getElementById('btnReplayCard').classList.remove('hidden');
+          }
+        });
+
+        document.getElementById('btnReplayCard').addEventListener('click', () => {
+          resetCardProgress();
+        });
+
+        document.getElementById('inpRecipient').addEventListener('input', (e) => {
+          config.recipientName = e.target.value;
+        });
+        document.getElementById('inpSender').addEventListener('input', (e) => {
+          config.senderSignOff = e.target.value;
+        });
+        document.getElementById('inpCountdown').addEventListener('change', (e) => {
+          config.targetDate = e.target.value;
+        });
+
+        document.querySelectorAll('#themeSelectorGroup .theme-option').forEach((btn) => {
+          btn.addEventListener('click', () => {
+            config.theme = btn.dataset.theme;
+            document.querySelectorAll('#themeSelectorGroup .theme-option').forEach((b) =>
+              b.classList.toggle('selected', b === btn)
+            );
+          });
+        });
+
+        for (let i = 0; i < 3; i++) {
+          document.getElementById(`inpPhotoUrl${i}`).addEventListener('input', (e) => {
+            if (!Array.isArray(config.photoUrls)) config.photoUrls = ['', '', ''];
+            config.photoUrls[i] = e.target.value.trim();
+            renderStudioPhotoThumbs();
+          });
+        }
+
+        document.getElementById('inpPhotos').addEventListener('change', async (e) => {
+          const files = Array.from(e.target.files || []).slice(0, 3);
+          if (!files.length) return;
+          const compressed = await Promise.all(files.map(compressImageFile));
+          config.photos = [...(config.photos || []), ...compressed].slice(0, 3);
+          renderStudioPhotoThumbs();
+          e.target.value = '';
+        });
+
+        const selMusic = document.getElementById('selMusicTrack');
+        selMusic.addEventListener('change', (e) => {
+          config.musicTrack = e.target.value;
+          SoundEngine.stopMusic();
+          document.getElementById('customAudioControls').classList.toggle(
+            'hidden',
+            config.musicTrack !== 'custom'
+          );
+        });
+
+        document.getElementById('btnTestAudio').addEventListener('click', (e) => {
+          if (SoundEngine.isTesting) {
+            SoundEngine.stopMusic();
+            e.target.textContent = '▶ Test Audio';
+          } else {
+            SoundEngine.startMusic(true);
+            e.target.textContent = '⏹ Stop Audio';
+          }
+        });
+
+        document.getElementById('inpMp3File').addEventListener('change', (e) => {
+          const file = e.target.files && e.target.files[0];
+          if (!file) return;
+          const reader = new FileReader();
+          reader.onload = (ev) => {
+            config.customAudioData = ev.target.result;
+            config.customAudioName = `${file.name} (${Math.round(file.size / 1024)} KB)`;
+            document.getElementById('mp3FileInfo').textContent = `✓ Loaded: ${config.customAudioName}`;
+          };
+          reader.readAsDataURL(file);
+        });
+
+        document.getElementById('inpMp3Url').addEventListener('input', (e) => {
+          config.customAudioUrl = e.target.value.trim();
+        });
+
+        for (let i = 0; i < 4; i++) {
+          document.getElementById(`inpBalloon${i}`).addEventListener('input', (e) => {
+            config.balloonWords[i] = e.target.value;
+          });
+        }
+
+        document.getElementById('inpBouquetNotes').addEventListener('input', (e) => {
+          config.bouquetNotes = e.target.value.split(',').map((s) => s.trim());
+        });
+
+        document.getElementById('inpLetter').addEventListener('input', (e) => {
+          config.letterText = e.target.value;
+        });
+
+        document.getElementById('btnGenerateShare').addEventListener('click', openShareModal);
+        document.getElementById('btnStudioToPreview').addEventListener('click', () => switchMode('preview'));
+        document.getElementById('btnOpenTesterFromStudio').addEventListener('click', openShareModal);
+
+        document.getElementById('btnCloseModal').addEventListener('click', () => {
+          document.getElementById('shareModal').classList.add('hidden');
+        });
+
+        document.getElementById('btnCopyLink').addEventListener('click', () => {
+          const input = document.getElementById('shareUrlInput');
+          input.select();
+          input.setSelectionRange(0, 99999);
+          let copied = false;
+          try {
+            copied = document.execCommand('copy');
+          } catch (e) {}
+          document.getElementById('copyToast').textContent = copied
+            ? '✅ Link copied to clipboard!'
+            : 'Link selected — press Ctrl+C / Cmd+C to copy';
+        });
+
+        document.getElementById('btnPreviewGenerated').addEventListener('click', () => {
+          document.getElementById('shareModal').classList.add('hidden');
+          loadCardFromInputString(lastGeneratedUrl);
+        });
+
+        document.getElementById('btnLoadTestedLink').addEventListener('click', () => {
+          const val = document.getElementById('testerInput').value;
+          const ok = loadCardFromInputString(val);
+          if (ok) {
+            document.getElementById('shareModal').classList.add('hidden');
+            document.getElementById('testerFeedback').textContent = '';
+          } else {
+            document.getElementById('testerFeedback').textContent =
+              'Could not find a valid Card ID or #gift= link. Check and try again.';
+          }
+        });
+      }
+
+      /* ----------------------------------------------------------------------
+         J. BOOTSTRAP APPLICATION
+         ---------------------------------------------------------------------- */
+      initEvents();
+      loadInitialCardFromLocation();
+      syncStudioInputsFromConfig();
+      applyConfigToCard();
+      updateCountdown();
+      setInterval(updateCountdown, 1000);
+    })();
+  </script>
+</body>
+</html>
